@@ -3,19 +3,26 @@ import React, { useState, useEffect, useRef } from "react";
 import axios from 'axios'
 import * as rsa from './rsa'
 import * as bigintConversion from 'bigint-conversion'
-//import * as BlindSignature from 'blind-signatures'
+
+
 
 function App() {
   const apiServer ="http://localhost:3001/";
+  const [messagesend, setmessagesend] = useState<String>("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [messagetxt, setmessagetxt] = useState<String>("");
+  let [signedtxt, setsignedtxt] = useState<String>();
+  const [undlindtxt, setMessageunblind] = useState<String>('');
+  
+  let [r, setr] = useState<bigint>(bigintConversion.bufToBigint(window.crypto.getRandomValues(new Uint8Array(16))));
+  let [unblinded, setunblinded]=useState<bigint>();
   const textAreaChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     setmessagetxt(event.target.value);
   };
 
-  //const BlindSignature = require('blind-signatures');
-  const [messagecypher, setMessagecypher] = useState('');
-  let pubkey: rsa.MyRsaPupblicKey;
+
+  const [messagecypher, setMessagecypher] = useState(''); //blinded message
+  const [pubkey, assignPubKey]=useState<rsa.MyRsaPupblicKey>();
 
   useEffect(() => {
     if (textareaRef && textareaRef.current) {
@@ -28,28 +35,52 @@ function App() {
   const getserverpublickey = async () => {
     const res = await axios.get(`${apiServer}rsapubkey`);
     // res.data es un json
-    pubkey = rsa.MyRsaPupblicKey.fromJSON(res.data);
+    assignPubKey( rsa.MyRsaPupblicKey.fromJSON(res.data));
     console.log(pubkey);
   }
 
   const blindMessage = async () => {
-    getserverpublickey();
-  //   const blinded = BlindSignature.blind({
-  //     message: messagetxt,
-  //     N: pubkey.n,
-  //     E: pubkey.e,
-  //   }); 
-  //   setMessagecypher(blinded);
-   }
+    await getserverpublickey();
+    let enc: Boolean = false;
+    while (!enc){
+      if (r % pubkey!.n !== 0n)
+        enc = true;
+      else
+        setr(bigintConversion.bufToBigint(window.crypto.getRandomValues(new Uint8Array(16))));
+    }
+    const blinded = pubkey!.blind(bigintConversion.textToBigint(messagetxt.toString()), r);
+    setmessagesend(bigintConversion.bigintToBase64(blinded));
+    setMessagecypher(blinded.toString());
+
+  }
 
   const sendMessage = async () => {
     if (messagetxt==="")
       alert('enter a message');
-    else
-      await axios.post(`http://localhost:3001/decrypt`,{text: messagecypher});
+    else{
+      const res = await axios.post(`http://localhost:3001/tosign`,{text:messagesend});
+      setsignedtxt(res.data.signed.toString());
+    }
+
   }
 
   const verifyMessage = async () => {
+    const verifybigint= pubkey!.verify(unblinded!);
+    alert(bigintConversion.bigintToText(verifybigint));
+  }
+
+  const unblindMessage = async () => {
+    //await getserverpublickey();
+    if (signedtxt==null){
+      alert("not signed yet")
+    }else{
+    let blindsignedbigint= bigintConversion.base64ToBigint(signedtxt.toString());
+    console.log("blindsigned: "+blindsignedbigint);
+    console.log("r: "+r);
+    const u = pubkey!.unblind(blindsignedbigint, r);
+    setMessageunblind(u.toString());
+    setunblinded(u);
+    }
   }
 
 
@@ -68,9 +99,7 @@ function App() {
       ></textarea>
       <div>
       <button className='blindbtn' onClick={ () => blindMessage()} >blind</button>
-      </div>  
-      <br />
-     
+      </div>       
       <div>
       <textarea
         ref={textareaRef}
@@ -81,22 +110,33 @@ function App() {
       ></textarea>
       </div>
       <div>
-      <button className='sendbtn' onClick={() => sendMessage()}>send to be signed</button>
+      <button className='sendbtn' onClick={async () => await sendMessage()}>send to be signed</button>
       </div>
-      <br />
+      
       <div>
       <textarea
         ref={textareaRef}
         style={styles.textareaDefaultStyle}
         onChange={textAreaChange}
-        value={"signed message: "}
+        value={"signed message: "+signedtxt}
         className='cyphertxt'
       ></textarea>
       </div>
       <div>
-      <button className='verifybtn' onClick={() => verifyMessage()}>verify</button>
+      <button className='unblindbtn' onClick={()=>unblindMessage()}>unblind</button>
       </div>
-
+      <div>
+      <textarea
+        ref={textareaRef}
+        style={styles.textareaDefaultStyle}
+        onChange={textAreaChange}
+        value={"unblinded message: "+undlindtxt}
+        className='cyphertxt'
+      ></textarea>
+      </div>
+      <div>
+      <button className='verifybtn' onClick={async () => await verifyMessage()}>verify</button>
+      </div>
       </header>
       
     </div>
@@ -114,6 +154,7 @@ const styles: { [name: string]: React.CSSProperties } = {
     alignItems: "center",
   },
   textareaDefaultStyle: {
+    marginTop:10,
     padding: 5,
     width: 400,
     display: "block",

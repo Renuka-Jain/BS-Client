@@ -1,6 +1,7 @@
 import * as bcu from 'bigint-crypto-utils'
 import { bigintToBase64, base64ToBigint } from 'bigint-conversion'
 
+
 export class MyRsaPrivatKey {
   
   d: bigint
@@ -10,6 +11,7 @@ export class MyRsaPrivatKey {
   constructor(d: bigint, n: bigint) {
     this.d = d
     this.n = n
+    
   }
 
   decrypt(c: bigint): bigint {
@@ -32,6 +34,17 @@ export class MyRsaPupblicKey {
   constructor(e: bigint, n: bigint) {
     this.e = e
     this.n = n
+  }
+
+  blind(m: bigint, r:bigint): bigint {
+    
+    const b = m * (this.encrypt(r));
+    return bcu.toZn(b, this.n);
+  }
+
+  unblind(m: bigint, r:bigint): bigint {
+    const b = bcu.modInv(r, this.n);
+    return bcu.toZn(m*b, this.n);
   }
 
   encrypt(m: bigint): bigint {
